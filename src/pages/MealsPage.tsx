@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import FoodSelectionGuide from '../components/meals/FoodSelectionGuide'
 import MealCard from '../components/meals/MealCard'
 import type { MealItem } from '../components/meals/MealCard'
 import { mealPlan } from '../data/mealPlan'
@@ -302,6 +303,8 @@ function MealsPage() {
               />
             ))}
           </div>
+
+          <FoodSelectionGuide />
         </>
       )}
     </div>
