@@ -8,6 +8,7 @@ export interface LatestGymSessionSummary {
 }
 
 interface GymProgressCardProps {
+  isCurrentWeek?: boolean
   completedSessions: number
   completedSets: number
   possibleSets: number
@@ -21,6 +22,7 @@ function getSessionLabel(count: number) {
 }
 
 function GymProgressCard({
+  isCurrentWeek = true,
   completedSessions,
   completedSets,
   possibleSets,
@@ -38,7 +40,9 @@ function GymProgressCard({
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-semibold text-navy">Gym</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">Esta semana</p>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {isCurrentWeek ? 'Esta semana' : 'Semana seleccionada'}
+          </p>
         </div>
         {hasCompletedSessions ? (
           <p className="text-2xl font-bold tracking-tight text-navy">
@@ -86,7 +90,9 @@ function GymProgressCard({
         </>
       ) : (
         <p className="mt-5 text-sm leading-6 text-muted-foreground">
-          Todavía no registraste entrenamientos esta semana.
+          {isCurrentWeek
+            ? 'Todavía no registraste entrenamientos esta semana.'
+            : 'No hay entrenamientos finalizados en esta semana.'}
         </p>
       )}
 

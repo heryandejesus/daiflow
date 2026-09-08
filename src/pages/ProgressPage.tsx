@@ -1,11 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import WeeklyPeriodNavigator from '../components/progress/WeeklyPeriodNavigator'
 import GymProgressCard from '../components/progress/GymProgressCard'
 import WeeklyProgressChart from '../components/progress/WeeklyProgressChart'
 import WeeklySummaryCards from '../components/progress/WeeklySummaryCards'
 import { gymPlan } from '../data/gymPlan'
 import { useLocalDay } from '../day/LocalDayProvider'
 import { supabase } from '../lib/supabase'
-import { getCurrentWeek } from '../utils/weekDates'
+import { getWeek } from '../utils/weekDates'
+import {
+  formatWeekRange,
+  getAdjacentWeekDate,
+  resolveWeeklyPeriod,
+} from '../utils/weeklyPeriod'
 import type { CurrentWeek } from '../utils/weekDates'
 import {
   calculateWeeklySummary,
@@ -13,10 +20,9 @@ import {
 } from '../utils/progressCalculations'
 import type { GymSetLogRow, WeeklySummary } from '../utils/progressCalculations'
 
-const rangeFormatter = new Intl.DateTimeFormat('es-AR', {
-  day: 'numeric',
-  month: 'short',
-})
+interface LoadedWeeklySummary extends WeeklySummary {
+  hasRecords: boolean
+}
 
 async function fetchWeeklySummary(week: CurrentWeek) {
   try {
@@ -64,6 +70,10 @@ async function fetchWeeklySummary(week: CurrentWeek) {
     }
 
     return {
+      hasRecords:
+        (mealResult.data?.length ?? 0) > 0 ||
+        (waterResult.data?.length ?? 0) > 0 ||
+        gymSessions.length > 0,
       ...calculateWeeklySummary(
         week,
         mealResult.data ?? [],
@@ -77,38 +87,63 @@ async function fetchWeeklySummary(week: CurrentWeek) {
 }
 
 function ProgressPage() {
-  const { currentDate, localDate } = useLocalDay()
-  const week = useMemo(() => getCurrentWeek(currentDate), [currentDate])
-  const [summary, setSummary] = useState<WeeklySummary | null>(null)
+  const { localDate: currentLocalDate } = useLocalDay()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const search = searchParams.toString()
+  const { baseDate, currentWeekStart, canonicalSearch } =
+    resolveWeeklyPeriod(search, currentLocalDate)
+  const week = useMemo(
+    () => getWeek(baseDate, currentLocalDate),
+    [baseDate, currentLocalDate],
+  )
+  const isCurrentWeek = week.startDateString === currentWeekStart
+  const previousWeekDate = getAdjacentWeekDate(week.startDateString, -1, currentLocalDate)
+  const nextWeekDate = getAdjacentWeekDate(week.startDateString, 1, currentLocalDate)
+  const [summary, setSummary] = useState<LoadedWeeklySummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [loadedDate, setLoadedDate] = useState<string | null>(null)
+  const [loadedWeek, setLoadedWeek] = useState<CurrentWeek | null>(null)
   const mountedRef = useRef(true)
-  const currentLocalDateRef = useRef(localDate)
+  const activeWeekRef = useRef<CurrentWeek | null>(null)
+  const loadGenerationRef = useRef(0)
 
   useEffect(() => {
-    currentLocalDateRef.current = localDate
-  }, [localDate])
+    if (search !== canonicalSearch) {
+      setSearchParams(canonicalSearch, { replace: true })
+    }
+  }, [search, canonicalSearch, setSearchParams])
 
-  useEffect(() => {
+  // A fresh week object distinguishes visits A -> B -> A and local-day changes.
+  // Invalidate at commit, before passive loads or late promise callbacks run.
+  useLayoutEffect(() => {
     mountedRef.current = true
+    activeWeekRef.current = week
+    loadGenerationRef.current += 1
     return () => {
       mountedRef.current = false
+      activeWeekRef.current = null
+      loadGenerationRef.current += 1
     }
-  }, [])
+  }, [week])
 
   useEffect(() => {
     let ignore = false
+    const generation = loadGenerationRef.current
+    const isCurrent = () =>
+      !ignore &&
+      mountedRef.current &&
+      activeWeekRef.current === week &&
+      loadGenerationRef.current === generation
 
     void Promise.resolve().then(async () => {
-      if (ignore) return
+      if (!isCurrent()) return
 
       setLoading(true)
       setLoadError(null)
       setSummary(null)
 
       const weeklySummary = await fetchWeeklySummary(week)
-      if (ignore) return
+      if (!isCurrent()) return
 
       if (weeklySummary === null) {
         setLoadError('No pudimos cargar tu progreso.')
@@ -116,24 +151,29 @@ function ProgressPage() {
         setSummary(weeklySummary)
       }
 
-      setLoadedDate(localDate)
+      setLoadedWeek(week)
       setLoading(false)
     })
 
     return () => {
       ignore = true
     }
-  }, [localDate, week])
+  }, [week])
 
   async function retryLoad() {
-    const requestDate = localDate
+    if (!mountedRef.current || activeWeekRef.current !== week) return
     const requestWeek = week
+    const generation = ++loadGenerationRef.current
     setLoadError(null)
     setLoading(true)
 
     const weeklySummary = await fetchWeeklySummary(requestWeek)
 
-    if (!mountedRef.current || currentLocalDateRef.current !== requestDate) {
+    if (
+      !mountedRef.current ||
+      activeWeekRef.current !== requestWeek ||
+      loadGenerationRef.current !== generation
+    ) {
       return
     }
 
@@ -143,11 +183,27 @@ function ProgressPage() {
       setSummary(weeklySummary)
     }
 
-    setLoadedDate(requestDate)
+    setLoadedWeek(requestWeek)
     setLoading(false)
   }
 
-  const weekRange = `${rangeFormatter.format(week.startDate)} – ${rangeFormatter.format(week.endDate)}`
+  function navigateWeek(direction: -1 | 1) {
+    const date = getAdjacentWeekDate(week.startDateString, direction, currentLocalDate)
+    if (date === null) return
+    const nextParams = new URLSearchParams(search)
+    nextParams.set('view', 'week')
+    nextParams.set('date', date)
+    setSearchParams(nextParams)
+  }
+
+  function returnToCurrentWeek() {
+    const nextParams = new URLSearchParams(search)
+    nextParams.delete('date')
+    nextParams.delete('view')
+    setSearchParams(nextParams)
+  }
+
+  const weekRange = formatWeekRange(week, currentLocalDate)
 
   return (
     <div className="space-y-5">
@@ -158,7 +214,17 @@ function ProgressPage() {
         <p className="mt-1 text-sm text-muted-foreground">Tu semana</p>
       </section>
 
-      {loading || loadedDate !== localDate ? (
+      <WeeklyPeriodNavigator
+        rangeLabel={weekRange}
+        isCurrentWeek={isCurrentWeek}
+        canGoPrevious={previousWeekDate !== null}
+        canGoNext={nextWeekDate !== null}
+        onPrevious={() => navigateWeek(-1)}
+        onNext={() => navigateWeek(1)}
+        onReturnToCurrent={returnToCurrentWeek}
+      />
+
+      {loading || loadedWeek !== week ? (
         <div
           role="status"
           aria-live="polite"
@@ -181,6 +247,12 @@ function ProgressPage() {
         </div>
       ) : (
         <>
+          {!summary.hasRecords ? (
+            <p className="text-center text-sm text-muted-foreground">
+              No hay registros en esta semana.
+            </p>
+          ) : null}
+
           <section className="rounded-card border border-border bg-mint/10 p-5 shadow-card">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -226,6 +298,7 @@ function ProgressPage() {
           />
 
           <GymProgressCard
+            isCurrentWeek={isCurrentWeek}
             completedSessions={summary.gym.completedSessions}
             completedSets={summary.gym.completedSets}
             possibleSets={summary.gym.possibleSets}
