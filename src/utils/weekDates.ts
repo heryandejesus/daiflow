@@ -1,4 +1,4 @@
-import { getLocalDateString } from './localDate'
+import { addLocalDays, getLocalDateString, parseLocalCalendarDate } from './localDate'
 
 export interface WeekDate {
   date: Date
@@ -22,30 +22,25 @@ const weekdayFormatter = new Intl.DateTimeFormat('es-AR', {
   weekday: 'long',
 })
 
-export function getCurrentWeek(referenceDate = new Date()): CurrentWeek {
-  const today = new Date(referenceDate)
-  today.setHours(12, 0, 0, 0)
-
+/** The base selects the period; only currentLocalDate determines today/future. */
+export function getWeek(baseDate: string, currentLocalDate: string): CurrentWeek {
+  const referenceDate = parseLocalCalendarDate(baseDate)
+  parseLocalCalendarDate(currentLocalDate)
   const normalizedDay = referenceDate.getDay() || 7
   const daysSinceMonday = normalizedDay - 1
-  const monday = new Date(today)
-  monday.setDate(today.getDate() - daysSinceMonday)
+  const mondayString = addLocalDays(baseDate, -daysSinceMonday)
 
-  const todayString = getLocalDateString(today)
   const days = shortLabels.map((shortLabel, index) => {
-    const date = new Date(monday)
-    date.setDate(monday.getDate() + index)
-    date.setHours(12, 0, 0, 0)
-
-    const dateString = getLocalDateString(date)
+    const dateString = addLocalDays(mondayString, index)
+    const date = parseLocalCalendarDate(dateString)
 
     return {
       date,
       dateString,
       shortLabel,
       fullLabel: weekdayFormatter.format(date),
-      isToday: dateString === todayString,
-      isFuture: dateString > todayString,
+      isToday: dateString === currentLocalDate,
+      isFuture: dateString > currentLocalDate,
     }
   })
 
@@ -56,4 +51,10 @@ export function getCurrentWeek(referenceDate = new Date()): CurrentWeek {
     endDateString: days[6].dateString,
     days,
   }
+}
+
+/** Compatibility wrapper: the reference date is both the base and today. */
+export function getCurrentWeek(referenceDate = new Date()): CurrentWeek {
+  const localDate = getLocalDateString(referenceDate).padStart(10, '0')
+  return getWeek(localDate, localDate)
 }
