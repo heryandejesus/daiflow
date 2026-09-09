@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import WeeklyPeriodNavigator from '../components/progress/WeeklyPeriodNavigator'
 import GymProgressCard from '../components/progress/GymProgressCard'
 import WeeklyProgressChart from '../components/progress/WeeklyProgressChart'
@@ -88,6 +88,7 @@ async function fetchWeeklySummary(week: CurrentWeek) {
 
 function ProgressPage() {
   const { localDate: currentLocalDate } = useLocalDay()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const search = searchParams.toString()
   const { baseDate, currentWeekStart, canonicalSearch } =
@@ -203,6 +204,11 @@ function ProgressPage() {
     setSearchParams(nextParams)
   }
 
+  function openDay(dateString: string) {
+    const params = new URLSearchParams({ from: 'week', week: week.startDateString })
+    navigate(`/progreso/dia/${dateString}?${params.toString()}`)
+  }
+
   const weekRange = formatWeekRange(week, currentLocalDate)
 
   return (
@@ -286,7 +292,7 @@ function ProgressPage() {
             </div>
           </section>
 
-          <WeeklyProgressChart days={summary.chartDays} />
+          <WeeklyProgressChart days={summary.chartDays} onDaySelect={openDay} />
 
           <WeeklySummaryCards
             completedMeals={summary.completedMeals}

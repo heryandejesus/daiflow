@@ -12,6 +12,7 @@ import GymPage from './pages/GymPage'
 import LoginPage from './pages/LoginPage'
 import MealsPage from './pages/MealsPage'
 import ProgressPage from './pages/ProgressPage'
+import ProgressDayPage from './pages/ProgressDayPage'
 import TodayPage from './pages/TodayPage'
 import WaterPage from './pages/WaterPage'
 
@@ -66,6 +67,7 @@ function App() {
         <Route path="agua" element={<WaterPage />} />
         <Route path="gym" element={<GymPage />} />
         <Route path="progreso" element={<ProgressPage />} />
+        <Route path="progreso/dia/:date" element={<ProgressDayPage />} />
       </Route>
       <Route
         path="*"

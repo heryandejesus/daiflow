@@ -9,9 +9,10 @@ export interface WeeklyProgressDay {
 
 interface WeeklyProgressChartProps {
   days: WeeklyProgressDay[]
+  onDaySelect?: (dateString: string) => void
 }
 
-function WeeklyProgressChart({ days }: WeeklyProgressChartProps) {
+function WeeklyProgressChart({ days, onDaySelect }: WeeklyProgressChartProps) {
   return (
     <section className="rounded-card border border-border bg-surface p-5 shadow-soft">
       <h2 className="text-lg font-semibold text-navy">Progreso diario</h2>
@@ -32,19 +33,23 @@ function WeeklyProgressChart({ days }: WeeklyProgressChartProps) {
                 {day.isFuture ? '' : `${day.progress ?? 0}%`}
               </span>
 
-              <div
-                aria-hidden="true"
-                className="mt-2 flex h-28 w-full max-w-8 items-end overflow-hidden rounded-button bg-border/50"
+              <button
+                type="button"
+                disabled={day.isFuture || !onDaySelect}
+                aria-label={`${accessibleLabel}. Abrir detalle`}
+                onClick={() => onDaySelect?.(day.dateString)}
+                className="mt-2 flex h-28 w-full max-w-8 items-end overflow-hidden rounded-button bg-border/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-default"
               >
                 {!day.isFuture ? (
-                  <div
+                  <span
+                    aria-hidden="true"
                     className={`w-full rounded-button ${
                       day.isToday ? 'bg-lavender' : 'bg-mint'
                     }`}
                     style={{ height: `${day.progress ?? 0}%` }}
                   />
                 ) : null}
-              </div>
+              </button>
 
               <span
                 className={`mt-2 flex size-7 items-center justify-center rounded-full text-xs font-semibold ${

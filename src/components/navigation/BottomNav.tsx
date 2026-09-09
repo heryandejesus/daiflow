@@ -28,7 +28,7 @@ function BottomNav() {
           <NavLink
             key={label}
             to={to}
-            end
+            end={to !== '/progreso'}
             className={({ isActive }) =>
               `flex min-h-16 flex-col items-center justify-center gap-1 rounded-control text-xs font-medium transition-colors ${
                 isActive
