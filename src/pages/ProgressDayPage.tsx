@@ -10,6 +10,7 @@ import { useWaterForDate } from '../hooks/useWaterForDate'
 import { useLocalDay } from '../day/LocalDayProvider'
 import { compareLocalDates, parseLocalCalendarDate } from '../utils/localDate'
 import { getWeek } from '../utils/weekDates'
+import { shiftMonthStart } from '../utils/monthDates'
 
 function ProgressDayPage() {
   const { date: routeDate } = useParams<{ date: string }>()
@@ -33,6 +34,16 @@ function ProgressDayPage() {
       try {
         const contextStart = getWeek(contextWeek, currentLocalDate).startDateString
         if (contextStart === contextWeek) return `/progreso?view=week&date=${contextWeek}`
+      } catch { /* fall through to the date's canonical week */ }
+    }
+    const fromMonth = searchParams.get('from') === 'month'
+    const contextMonth = searchParams.get('month')
+    if (fromMonth && contextMonth) {
+      try {
+        if (shiftMonthStart(contextMonth, 0) === contextMonth &&
+            shiftMonthStart(selectedDate, 0) === contextMonth) {
+          return `/progreso?view=month&date=${contextMonth}`
+        }
       } catch { /* fall through to the date's canonical week */ }
     }
     return `/progreso?view=week&date=${selectedWeek.startDateString}`

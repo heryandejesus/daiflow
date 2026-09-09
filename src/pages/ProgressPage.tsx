@@ -1,5 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import MonthlyCalendar from '../components/progress/MonthlyCalendar'
+import PeriodSelector from '../components/progress/PeriodSelector'
 import WeeklyPeriodNavigator from '../components/progress/WeeklyPeriodNavigator'
 import GymProgressCard from '../components/progress/GymProgressCard'
 import WeeklyProgressChart from '../components/progress/WeeklyProgressChart'
@@ -8,6 +11,8 @@ import { gymPlan } from '../data/gymPlan'
 import { useLocalDay } from '../day/LocalDayProvider'
 import { supabase } from '../lib/supabase'
 import { getWeek } from '../utils/weekDates'
+import { getMonth, shiftMonthStart } from '../utils/monthDates'
+import { getAdjacentMonthDate, resolveMonthlyPeriod } from '../utils/monthlyPeriod'
 import {
   formatWeekRange,
   getAdjacentWeekDate,
@@ -24,7 +29,9 @@ interface LoadedWeeklySummary extends WeeklySummary {
   hasRecords: boolean
 }
 
-async function fetchWeeklySummary(week: CurrentWeek) {
+type ProgressPeriod = Pick<CurrentWeek, 'startDate' | 'endDate' | 'startDateString' | 'endDateString' | 'days'>
+
+async function fetchWeeklySummary(week: ProgressPeriod) {
   try {
     const [mealResult, waterResult, gymSessionsResult] = await Promise.all([
       supabase
@@ -86,7 +93,76 @@ async function fetchWeeklySummary(week: CurrentWeek) {
   }
 }
 
-function ProgressPage() {
+function MonthlyProgressView({ currentLocalDate, search, setSearchParams }: { currentLocalDate: string; search: string; setSearchParams: (params: URLSearchParams, options?: { replace?: boolean }) => void }) {
+  const { startDate, currentMonthStart, canonicalSearch } = resolveMonthlyPeriod(search, currentLocalDate)
+  const month = useMemo(() => getMonth(startDate, currentLocalDate), [startDate, currentLocalDate])
+  const nextMonth = getAdjacentMonthDate(month.startDateString, 1, currentLocalDate)
+  const previousMonth = getAdjacentMonthDate(month.startDateString, -1, currentLocalDate)
+  const isCurrentMonth = month.startDateString === currentMonthStart
+  const [summary, setSummary] = useState<LoadedWeeklySummary | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [loadedMonth, setLoadedMonth] = useState<typeof month | null>(null)
+  const generationRef = useRef(0)
+  const activeMonthRef = useRef<typeof month | null>(null)
+  const mountedRef = useRef(true)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    if (search !== canonicalSearch) setSearchParams(new URLSearchParams(canonicalSearch), { replace: true })
+  }, [canonicalSearch, search, setSearchParams])
+  useLayoutEffect(() => {
+    mountedRef.current = true; activeMonthRef.current = month; generationRef.current += 1
+    return () => { mountedRef.current = false; activeMonthRef.current = null; generationRef.current += 1 }
+  }, [month])
+  useEffect(() => {
+    const generation = generationRef.current; let ignore = false
+    const current = () => !ignore && mountedRef.current && activeMonthRef.current === month && generationRef.current === generation
+    void fetchWeeklySummary(month).then((result) => {
+      if (!current()) return
+      if (result === null) setError('No pudimos cargar tu progreso.')
+      else setSummary(result)
+      setLoadedMonth(month); setLoading(false)
+    })
+    return () => { ignore = true }
+  }, [month])
+  function navigateMonth(direction: -1 | 1) {
+    const date = direction === 1 ? nextMonth : previousMonth
+    if (!date) return
+    const params = new URLSearchParams(search); params.set('view', 'month'); params.set('date', date); setSearchParams(params)
+  }
+  async function retryLoad() {
+    const generation = ++generationRef.current
+    setLoading(true); setError(null)
+    const result = await fetchWeeklySummary(month)
+    if (!mountedRef.current || activeMonthRef.current !== month || generationRef.current !== generation) return
+    if (result === null) setError('No pudimos cargar tu progreso.')
+    else setSummary(result)
+    setLoadedMonth(month); setLoading(false)
+  }
+  function openDay(date: string) { navigate(`/progreso/dia/${date}?from=month&month=${month.startDateString}`) }
+  const monthLabel = new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' }).format(month.startDate)
+  return <div className="space-y-5">
+    <section><h1 className="text-2xl font-semibold tracking-tight text-navy">Progreso</h1><p className="mt-1 text-sm text-muted-foreground">Tu mes</p></section>
+    <nav aria-label="Navegación mensual" className="rounded-card border border-border bg-surface px-2 py-2 shadow-soft"><div className="grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-1"><button type="button" aria-label="Mes anterior" onClick={() => navigateMonth(-1)} className="flex size-11 items-center justify-center rounded-button text-navy hover:bg-mint/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy"><ChevronLeft aria-hidden="true" className="size-5" /></button><p aria-live="polite" className="text-center text-sm font-semibold capitalize text-navy">{monthLabel}</p><button type="button" aria-label="Mes siguiente" disabled={!nextMonth} onClick={() => navigateMonth(1)} className="flex size-11 items-center justify-center rounded-button text-navy hover:bg-mint/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:cursor-not-allowed disabled:opacity-35"><ChevronRight aria-hidden="true" className="size-5" /></button></div><div className="flex min-h-11 items-center justify-center">{isCurrentMonth ? <p className="text-xs font-medium text-muted-foreground">Mes actual</p> : <button type="button" onClick={() => { const params = new URLSearchParams(search); params.delete('date'); params.set('view', 'month'); setSearchParams(params) }} className="min-h-11 rounded-button px-3 text-xs font-semibold text-navy hover:bg-mint/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy">Volver a este mes</button>}</div></nav>
+    {loading || loadedMonth !== month ? <div role="status" aria-live="polite" className="rounded-card border border-border bg-surface p-5 text-sm text-muted-foreground shadow-soft">Cargando tu progreso…</div> : error || !summary ? <div className="rounded-card border border-coral/25 bg-surface p-5 shadow-soft"><p role="alert" className="text-sm font-medium text-navy">{error ?? 'No pudimos cargar tu progreso.'}</p><button type="button" onClick={() => void retryLoad()} className="mt-4 min-h-11 rounded-button bg-mint px-5 py-2 text-sm font-semibold text-navy">Reintentar</button></div> : <MonthlySummary summary={summary} month={month} onDaySelect={openDay} />}
+  </div>
+}
+
+function MonthlySummary({ summary, month, onDaySelect }: { summary: LoadedWeeklySummary; month: ReturnType<typeof getMonth>; onDaySelect: (date: string) => void }) {
+  const averageWaterProgress = summary.averageWaterProgress
+  const averageMealProgress = summary.averageMealProgress
+  const monthlyCombined = summary.weeklyProgress
+  return <>
+    {!summary.hasRecords ? <p className="text-center text-sm text-muted-foreground">No hay registros en este mes.</p> : null}
+    <section className="rounded-card border border-border bg-mint/10 p-5 shadow-card"><div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold text-navy">Promedio mensual</h2><p className="mt-1 text-sm text-muted-foreground">Comidas e hidratación</p><p className="mt-2 text-xs font-medium capitalize text-muted-foreground">{new Intl.DateTimeFormat('es-AR', { month: 'long', year: 'numeric' }).format(month.startDate)}</p></div><p className="text-3xl font-bold tracking-tight text-navy">{monthlyCombined}%</p></div><div role="progressbar" aria-label="Promedio mensual de comidas e hidratación" aria-valuemin={0} aria-valuemax={100} aria-valuenow={monthlyCombined} className="mt-5 h-3 overflow-hidden rounded-button bg-mint/20"><div className="h-full rounded-button bg-mint" style={{ width: `${monthlyCombined}%` }} /></div></section>
+    <section aria-label="Resumen mensual" className="grid grid-cols-2 gap-3"><article className="rounded-card border border-coral/20 bg-surface p-4 shadow-soft"><p className="text-xs font-semibold tracking-wider text-muted-foreground">COMIDAS</p><p className="mt-2 text-2xl font-bold text-navy">{averageMealProgress}%</p></article><article className="rounded-card border border-mint/30 bg-surface p-4 shadow-soft"><p className="text-xs font-semibold tracking-wider text-muted-foreground">AGUA</p><p className="mt-2 text-2xl font-bold text-navy">{averageWaterProgress}%</p></article></section>
+    <MonthlyCalendar month={month} progressByDate={new Map(summary.chartDays.map((day) => [day.dateString, day.progress]))} onDaySelect={onDaySelect} />
+    <GymProgressCard periodLabel="Este mes" isCurrentWeek={false} completedSessions={summary.gym.completedSessions} completedSets={summary.gym.completedSets} possibleSets={summary.gym.possibleSets} progress={summary.gym.progress} activeSessionCount={summary.gym.activeSessionCount} latestSession={summary.gym.latestSession} />
+  </>
+}
+
+function WeeklyProgressPage() {
   const { localDate: currentLocalDate } = useLocalDay()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -316,6 +392,31 @@ function ProgressPage() {
       )}
     </div>
   )
+}
+
+function ProgressPage() {
+  const { localDate: currentLocalDate } = useLocalDay()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const view = searchParams.get('view') === 'month' ? 'month' : 'week'
+  function changeView(nextView: 'week' | 'month') {
+    const params = new URLSearchParams(searchParams)
+    const reference = params.get('date') ?? currentLocalDate
+    if (nextView === 'month') {
+      params.set('view', 'month')
+      params.set('date', shiftMonthStart(reference, 0))
+    } else {
+      const weekReference = params.get('date') ?? currentLocalDate
+      const week = getWeek(weekReference, currentLocalDate)
+      const currentStart = getWeek(currentLocalDate, currentLocalDate).startDateString
+      if (week.startDateString === currentStart && !params.get('date')) {
+        params.delete('view'); params.delete('date')
+      } else {
+        params.set('view', 'week'); params.set('date', week.startDateString)
+      }
+    }
+    setSearchParams(params)
+  }
+  return <div className="space-y-5"><PeriodSelector view={view} onChange={changeView} />{view === 'month' ? <MonthlyProgressView currentLocalDate={currentLocalDate} search={searchParams.toString()} setSearchParams={setSearchParams} /> : <WeeklyProgressPage />}</div>
 }
 
 export default ProgressPage
