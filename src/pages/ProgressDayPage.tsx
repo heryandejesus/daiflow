@@ -22,7 +22,8 @@ function ProgressDayPage() {
     try { parseLocalCalendarDate(routeDate); return { date: routeDate, error: null } }
     catch { return { date: null, error: 'La fecha indicada no es válida.' } }
   }, [routeDate])
-  const selectedDate = validation.date ?? currentLocalDate
+  // Keep invalid route input out of every data hook; never turn it into today.
+  const selectedDate = validation.date ?? '__invalid_calendar_date__'
   const isFuture = validation.date !== null && compareLocalDates(selectedDate, currentLocalDate) > 0
   const isToday = validation.date !== null && selectedDate === currentLocalDate
   const periodHref = useMemo(() => {
